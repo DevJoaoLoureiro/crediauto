@@ -1,0 +1,13 @@
+export default function AdministracaoPage() {
+  return (
+    <div>
+      <h1 className="text-2xl font-bold text-gray-900">
+        Administração
+      </h1>
+
+      <p className="mt-2 text-sm text-gray-500">
+        Área de administração do CrediAuto.
+      </p>
+    </div>
+  );
+}
