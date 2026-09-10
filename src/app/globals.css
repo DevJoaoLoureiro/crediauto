@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+
+/* =========================================================
+   CREDIAUTO CRM
+========================================================= */
+
+:root {
+  --ca-primary: #006571;
+  --ca-primary-hover: #00545e;
+  --ca-secondary: #1693a0;
+  --ca-accent: #22a9b6;
+
+  --ca-background: #f6f8f9;
+  --ca-surface: #ffffff;
+
+  --ca-text: #172126;
+  --ca-muted: #6b7280;
+
+  --ca-border: #e5e7eb;
+}
+
+html {
+  background: var(--ca-background);
+}
+
+body {
+  background: var(--ca-background);
+  color: var(--ca-text);
+}
+
+/* scrollbar discreta */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+
+::selection {
+  background: rgba(22, 147, 160, 0.18);
+  color: #172126;
+}
+
+/* inputs consistentes no CRM */
+
+input,
+select,
+textarea {
+  outline: none;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: rgba(0, 101, 113, 0.55);
+}
+
+/* evita animações demasiado agressivas */
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
