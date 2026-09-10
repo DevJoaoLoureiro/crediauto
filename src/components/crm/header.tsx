@@ -11,7 +11,15 @@ const pageNames: Record<string, string> = {
   administracao: 'Administração',
 };
 
-export default function Header() {
+type HeaderProps = {
+  fullName: string;
+  role: string;
+};
+
+export default function Header({
+  fullName,
+  role,
+}: HeaderProps) {
   const pathname = usePathname();
 
   const firstSegment =
@@ -23,6 +31,14 @@ export default function Header() {
   const section =
     pageNames[firstSegment] ??
     'CrediAuto';
+
+  const initials =
+    getInitials(fullName);
+
+  const roleLabel =
+    role === 'admin'
+      ? 'Administrador'
+      : 'Gestor';
 
   return (
     <header className="sticky top-0 z-30 h-[72px] border-b border-gray-200/70 bg-white/90 backdrop-blur-md">
@@ -77,16 +93,16 @@ export default function Header() {
             className="flex items-center gap-3 rounded-xl p-1.5 pr-2 transition hover:bg-gray-50"
           >
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#006571] text-xs font-bold text-white">
-              JD
+              {initials}
             </div>
 
             <div className="hidden text-left md:block">
               <p className="max-w-[140px] truncate text-sm font-semibold text-gray-800">
-                JoaoDev
+                {fullName}
               </p>
 
               <p className="text-[11px] text-gray-400">
-                Administrador
+                {roleLabel}
               </p>
             </div>
 
@@ -95,6 +111,39 @@ export default function Header() {
         </div>
       </div>
     </header>
+  );
+}
+
+function getInitials(
+  fullName: string,
+) {
+  const parts =
+    fullName
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+
+  if (
+    parts.length === 0
+  ) {
+    return 'U';
+  }
+
+  if (
+    parts.length === 1
+  ) {
+    return parts[0]
+      .slice(0, 2)
+      .toUpperCase();
+  }
+
+  return (
+    `${parts[0][0] ?? ''}${
+      parts[
+        parts.length - 1
+      ][0] ?? ''
+    }`
+      .toUpperCase()
   );
 }
 
