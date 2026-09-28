@@ -15,10 +15,13 @@ import {
 
 type Props = {
   portalToken: string;
+  /** Pedido RGPD do interveniente que vai assinar. */
+  requestId: string;
 };
 
 export default function StartRgpdButton({
   portalToken,
+  requestId,
 }: Props) {
   const router = useRouter();
 
@@ -42,6 +45,7 @@ export default function StartRgpdButton({
         const result =
           await startRgpdFromPortalAction(
             portalToken,
+            requestId,
           );
 
         if (!result.success) {

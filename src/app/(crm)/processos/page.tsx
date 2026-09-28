@@ -15,11 +15,13 @@ export default async function ProcessesPage() {
       id,
       reference,
       status,
+      credit_type,
       requested_amount,
       vehicle_make,
       vehicle_model,
+      vehicle_imported,
       created_at,
-      clients (
+      clients!client_id (
         id,
         full_name,
         nif

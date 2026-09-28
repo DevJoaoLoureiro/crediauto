@@ -5,6 +5,8 @@ import StartRgpdButton from '@/components/client-portal/start-rgpd-button';
 import {
   hashClientPortalToken,
 } from '@/lib/client-portal/tokens';
+import { DOCUMENT_TYPE_LABELS } from '@/lib/crm/labels';
+import { isExpired } from '@/lib/format';
 
 import DocumentUpload from '@/components/client-portal/document-upload';
 
@@ -12,22 +14,6 @@ type Props = {
   params: Promise<{
     token: string;
   }>;
-};
-
-const documentNames: Record<string, string> = {
-  identity: 'Documento de identificação',
-  address_proof: 'Comprovativo de morada',
-  income_proof: 'Comprovativo de rendimentos',
-  salary_receipt: 'Recibos de vencimento',
-  bank_statement: 'Extrato bancário',
-  irs: 'IRS',
-  tax_assessment: 'Nota de liquidação',
-  iban_proof: 'Comprovativo de IBAN',
-  pension_proof: 'Comprovativo de pensão',
-  rgpd: 'RGPD',
-  vehicle_document: 'Documento da viatura',
-  vehicle_invoice: 'Fatura / nota de encomenda',
-  other: 'Outro documento',
 };
 
 export default async function ClientDocumentsPage({
@@ -68,9 +54,7 @@ export default async function ClientDocumentsPage({
   }
 
   const expired =
-    new Date(
-      portalToken.expires_at,
-    ).getTime() < Date.now();
+    isExpired(portalToken.expires_at);
 
   if (
     expired ||
@@ -80,24 +64,79 @@ export default async function ClientDocumentsPage({
   }
 
   /* =========================================================
-     PROCESSO
+     PROCESSO + CLIENTE, PEDIDOS E DOCUMENTOS
+
+     Tudo depende apenas do process_id do portal,
+     por isso as consultas correm em paralelo.
   ========================================================= */
 
-  const {
-    data: creditProcess,
-    error: processError,
-  } = await admin
-    .from('credit_processes')
-    .select(`
-      id,
-      reference,
-      client_id
-    `)
-    .eq(
-      'id',
-      portalToken.process_id,
-    )
-    .maybeSingle();
+  const processId =
+    portalToken.process_id;
+
+  const [
+    {
+      data: creditProcess,
+      error: processError,
+    },
+    {
+      data: requests,
+      error: requestsError,
+    },
+    {
+      data: documents,
+      error: documentsError,
+    },
+  ] = await Promise.all([
+    admin
+      .from('credit_processes')
+      .select(`
+        id,
+        reference,
+        client_id,
+        clients!client_id (
+          id,
+          full_name
+        )
+      `)
+      .eq('id', processId)
+      .maybeSingle(),
+
+    admin
+      .from('document_requests')
+      .select(`
+        id,
+        process_id,
+        client_id,
+        type,
+        label,
+        instructions,
+        quantity_required,
+        status,
+        created_at,
+        updated_at
+      `)
+      .eq('process_id', processId)
+      .neq('status', 'cancelled')
+      .order('created_at', {
+        ascending: true,
+      }),
+
+    admin
+      .from('documents')
+      .select(`
+        id,
+        request_id,
+        type,
+        status,
+        file_name,
+        signed_at,
+        created_at
+      `)
+      .eq('process_id', processId)
+      .order('created_at', {
+        ascending: true,
+      }),
+  ]);
 
   if (
     processError ||
@@ -106,59 +145,11 @@ export default async function ClientDocumentsPage({
     notFound();
   }
 
-  /* =========================================================
-     CLIENTE
-  ========================================================= */
-
-  const {
-    data: client,
-  } = await admin
-    .from('clients')
-    .select(`
-      id,
-      full_name
-    `)
-    .eq(
-      'id',
-      creditProcess.client_id,
-    )
-    .maybeSingle();
-
-  /* =========================================================
-     PEDIDOS DE DOCUMENTOS
-  ========================================================= */
-
-  const {
-    data: requests,
-    error: requestsError,
-  } = await admin
-    .from('document_requests')
-    .select(`
-      id,
-      process_id,
-      client_id,
-      type,
-      label,
-      instructions,
-      quantity_required,
-      status,
-      created_at,
-      updated_at
-    `)
-    .eq(
-      'process_id',
-      creditProcess.id,
-    )
-    .neq(
-      'status',
-      'cancelled',
-    )
-    .order(
-      'created_at',
-      {
-        ascending: true,
-      },
-    );
+  const client = Array.isArray(
+    creditProcess.clients,
+  )
+    ? creditProcess.clients[0] ?? null
+    : creditProcess.clients;
 
   if (requestsError) {
     console.error(
@@ -169,35 +160,6 @@ export default async function ClientDocumentsPage({
 
   const requestList =
     requests ?? [];
-
-  /* =========================================================
-     DOCUMENTOS RECEBIDOS / ASSINADOS
-  ========================================================= */
-
-  const {
-    data: documents,
-    error: documentsError,
-  } = await admin
-    .from('documents')
-    .select(`
-      id,
-      request_id,
-      type,
-      status,
-      file_name,
-      signed_at,
-      created_at
-    `)
-    .eq(
-      'process_id',
-      creditProcess.id,
-    )
-    .order(
-      'created_at',
-      {
-        ascending: true,
-      },
-    );
 
   if (documentsError) {
     console.error(
@@ -428,7 +390,7 @@ export default async function ClientDocumentsPage({
                         <div className="flex flex-wrap items-center gap-2">
                           <h2 className="text-sm font-semibold text-gray-900">
                             {request.label ||
-                              documentNames[
+                              DOCUMENT_TYPE_LABELS[
                                 request.type
                               ] ||
                               'Documento'}
@@ -506,6 +468,9 @@ export default async function ClientDocumentsPage({
                             <StartRgpdButton
                               portalToken={
                                 token
+                              }
+                              requestId={
+                                request.id
                               }
                             />
                           )}

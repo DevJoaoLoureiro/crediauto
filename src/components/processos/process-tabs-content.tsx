@@ -6,6 +6,20 @@ import {
 } from 'react';
 
 import RequestDocumentsButton from '@/components/processos/request-documents-button';
+import {
+  DOCUMENT_STATUS_LABELS,
+  PROCESS_STATUS_LABELS,
+  describeProcessEvent,
+  getCreditTypeLabel,
+  getDocumentTypeLabel,
+} from '@/lib/crm/labels';
+import {
+  formatCurrency,
+  formatDate,
+  formatDateTime,
+  formatFileSize,
+} from '@/lib/format';
+
 type Tab =
   | 'resumo'
   | 'cliente'
@@ -63,6 +77,9 @@ type DocumentRequestData = {
   documents: DocumentData[];
 
   receivedCount: number;
+
+  proposal_id: string | null;
+  bankName: string | null;
 };
 
 type ProcessData = {
@@ -110,6 +127,14 @@ type ProcessData = {
     | string
     | null;
 
+  credit_type: string;
+  vehicle_imported: boolean;
+
+  supplier: NamedEntity;
+  commercial: TeamMember;
+  assistant: TeamMember;
+  administrative: TeamMember;
+
   created_at: string;
   updated_at: string;
 
@@ -117,10 +142,34 @@ type ProcessData = {
 
   documents: DocumentData[];
   documentRequests: DocumentRequestData[];
+
+  events: EventData[];
 };
+
+type EventData = {
+  id: string;
+  type: string;
+  data: Record<string, unknown> | null;
+  created_at: string;
+  author: string | null;
+};
+
+type NamedEntity = {
+  id: string;
+  name: string;
+} | null;
+
+type TeamMember = {
+  id: string;
+  full_name: string;
+} | null;
 
 type Props = {
   processData: ProcessData;
+  participantsComponent: ReactNode;
+  stageComponent: ReactNode;
+  proposalsComponent: ReactNode;
+  tasksComponent: ReactNode;
   portalComponent: ReactNode;
 };
 
@@ -134,7 +183,7 @@ const tabs: {
   },
   {
     id: 'cliente',
-    label: 'Cliente',
+    label: 'Intervenientes',
   },
   {
     id: 'credito',
@@ -146,7 +195,7 @@ const tabs: {
   },
   {
     id: 'financeiras',
-    label: 'Financeiras',
+    label: 'Propostas',
   },
   {
     id: 'historico',
@@ -154,40 +203,12 @@ const tabs: {
   },
 ];
 
-const statusLabels: Record<
-  string,
-  string
-> = {
-  new: 'Novo',
-  documentation: 'Documentação',
-  ready_for_analysis:
-    'Pronto para análise',
-  sent_to_lender:
-    'Enviado para financeira',
-  under_analysis:
-    'Em análise',
-  approved:
-    'Aprovado',
-  rejected:
-    'Recusado',
-  cancelled:
-    'Cancelado',
-  completed:
-    'Concluído',
-};
-
-const documentStatusLabels: Record<
-  string,
-  string
-> = {
-  pending: 'Pendente',
-  received: 'Recebido',
-  signed: 'Assinado',
-  rejected: 'Rejeitado',
-};
-
 export default function ProcessTabsContent({
   processData,
+  participantsComponent,
+  stageComponent,
+  proposalsComponent,
+  tasksComponent,
   portalComponent,
 }: Props) {
   const [
@@ -237,6 +258,12 @@ export default function ProcessTabsContent({
           processData={
             processData
           }
+          stageComponent={
+            stageComponent
+          }
+          tasksComponent={
+            tasksComponent
+          }
           portalComponent={
             portalComponent
           }
@@ -247,11 +274,15 @@ export default function ProcessTabsContent({
 
       {activeTab ===
         'cliente' && (
-        <ClienteTab
-          client={
-            processData.client
-          }
-        />
+        <div className="space-y-6">
+          {participantsComponent}
+
+          <ClienteTab
+            client={
+              processData.client
+            }
+          />
+        </div>
       )}
 
       {/* CRÉDITO */}
@@ -280,11 +311,11 @@ export default function ProcessTabsContent({
     />
     )}
 
-      {/* FINANCEIRAS */}
+      {/* PROPOSTAS AOS BANCOS */}
 
       {activeTab ===
         'financeiras' && (
-        <FinanceirasTab />
+        proposalsComponent
       )}
 
       {/* HISTÓRICO */}
@@ -307,9 +338,13 @@ export default function ProcessTabsContent({
 
 function ResumoTab({
   processData,
+  stageComponent,
+  tasksComponent,
   portalComponent,
 }: {
   processData: ProcessData;
+  stageComponent: ReactNode;
+  tasksComponent: ReactNode;
   portalComponent: ReactNode;
 }) {
   const {
@@ -328,6 +363,10 @@ function ResumoTab({
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
       <div className="space-y-6">
+        {/* FASES */}
+
+        {stageComponent}
+
         {/* FINANCIAMENTO */}
 
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -336,6 +375,13 @@ function ResumoTab({
           </h2>
 
           <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <Info
+              label="Tipo de crédito"
+              value={getCreditTypeLabel(
+                processData.credit_type,
+              )}
+            />
+
             <Info
               label="Montante solicitado"
               value={formatCurrency(
@@ -359,59 +405,71 @@ function ResumoTab({
               }
             />
 
-            <Info
-              label="Preço da viatura"
-              value={formatCurrency(
-                processData.vehicle_price,
-              )}
-            />
+            {processData.credit_type === 'auto' && (
+              <Info
+                label="Preço da viatura"
+                value={formatCurrency(
+                  processData.vehicle_price,
+                )}
+              />
+            )}
           </div>
         </section>
 
-        {/* VIATURA */}
+        {processData.credit_type === 'auto' && (
+          <>
+            {/* VIATURA */}
 
-        <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="font-semibold text-gray-950">
-            Viatura
-          </h2>
+            <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="font-semibold text-gray-950">
+                  Viatura
+                </h2>
 
-          <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            <Info
-              label="Marca"
-              value={
-                processData.vehicle_make
-              }
-            />
+                {processData.vehicle_imported && (
+                  <ImportedBadge />
+                )}
+              </div>
 
-            <Info
-              label="Modelo"
-              value={
-                processData.vehicle_model
-              }
-            />
+              <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                <Info
+                  label="Marca"
+                  value={
+                    processData.vehicle_make
+                  }
+                />
 
-            <Info
-              label="Versão"
-              value={
-                processData.vehicle_version
-              }
-            />
+                <Info
+                  label="Modelo"
+                  value={
+                    processData.vehicle_model
+                  }
+                />
 
-            <Info
-              label="Ano"
-              value={
-                processData.vehicle_year
-              }
-            />
+                <Info
+                  label="Versão"
+                  value={
+                    processData.vehicle_version
+                  }
+                />
 
-            <Info
-              label="Matrícula"
-              value={
-                processData.vehicle_registration
-              }
-            />
-          </div>
-        </section>
+                <Info
+                  label="Ano"
+                  value={
+                    processData.vehicle_year
+                  }
+                />
+
+                <Info
+                  label="Matrícula"
+                  value={
+                    processData.vehicle_registration
+                  }
+                />
+              </div>
+            </section>
+          </>
+        )}
 
         {/* DOCUMENTAÇÃO */}
 
@@ -617,6 +675,40 @@ function ResumoTab({
           )}
         </section>
 
+        {/* TAREFAS */}
+
+        {tasksComponent}
+
+        {/* FORNECEDOR E EQUIPA */}
+
+        <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+          <h2 className="font-semibold text-gray-950">
+            Fornecedor e equipa
+          </h2>
+
+          <div className="mt-6 space-y-5">
+            <Info
+              label="Fornecedor do bem"
+              value={processData.supplier?.name}
+            />
+
+            <Info
+              label="Comercial"
+              value={processData.commercial?.full_name}
+            />
+
+            <Info
+              label="Assistente"
+              value={processData.assistant?.full_name}
+            />
+
+            <Info
+              label="Administrativo F"
+              value={processData.administrative?.full_name}
+            />
+          </div>
+        </section>
+
         {/* PORTAL */}
 
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -652,7 +744,7 @@ function ResumoTab({
             <Info
               label="Estado"
               value={
-                statusLabels[
+                PROCESS_STATUS_LABELS[
                   processData.status
                 ] ??
                 processData.status
@@ -661,14 +753,14 @@ function ResumoTab({
 
             <Info
               label="Criado em"
-              value={formatDate(
+              value={formatDateTime(
                 processData.created_at,
               )}
             />
 
             <Info
               label="Atualizado em"
-              value={formatDate(
+              value={formatDateTime(
                 processData.updated_at,
               )}
             />
@@ -732,7 +824,7 @@ function ClienteTab({
           label="Data de nascimento"
           value={
             client.birth_date
-              ? formatSimpleDate(
+              ? formatDate(
                   client.birth_date,
                 )
               : null
@@ -800,6 +892,13 @@ function CreditoTab({
 
         <div className="mt-7 grid gap-7 sm:grid-cols-2 lg:grid-cols-3">
           <Info
+            label="Tipo de crédito"
+            value={getCreditTypeLabel(
+              processData.credit_type,
+            )}
+          />
+
+          <Info
             label="Montante solicitado"
             value={formatCurrency(
               processData.requested_amount,
@@ -822,57 +921,67 @@ function CreditoTab({
             }
           />
 
-          <Info
-            label="Preço da viatura"
-            value={formatCurrency(
-              processData.vehicle_price,
+          {processData.credit_type === 'auto' && (
+            <Info
+              label="Preço da viatura"
+              value={formatCurrency(
+                processData.vehicle_price,
+              )}
+            />
+          )}
+        </div>
+      </section>
+
+      {processData.credit_type === 'auto' && (
+        <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold text-gray-950">
+              Viatura
+            </h2>
+
+            {processData.vehicle_imported && (
+              <ImportedBadge />
             )}
-          />
-        </div>
-      </section>
+          </div>
 
-      <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-gray-950">
-          Viatura
-        </h2>
+          <div className="mt-7 grid gap-7 sm:grid-cols-2 lg:grid-cols-3">
+            <Info
+              label="Marca"
+              value={
+                processData.vehicle_make
+              }
+            />
 
-        <div className="mt-7 grid gap-7 sm:grid-cols-2 lg:grid-cols-3">
-          <Info
-            label="Marca"
-            value={
-              processData.vehicle_make
-            }
-          />
+            <Info
+              label="Modelo"
+              value={
+                processData.vehicle_model
+              }
+            />
 
-          <Info
-            label="Modelo"
-            value={
-              processData.vehicle_model
-            }
-          />
+            <Info
+              label="Versão"
+              value={
+                processData.vehicle_version
+              }
+            />
 
-          <Info
-            label="Versão"
-            value={
-              processData.vehicle_version
-            }
-          />
+            <Info
+              label="Ano"
+              value={
+                processData.vehicle_year
+              }
+            />
 
-          <Info
-            label="Ano"
-            value={
-              processData.vehicle_year
-            }
-          />
-
-          <Info
-            label="Matrícula"
-            value={
-              processData.vehicle_registration
-            }
-          />
-        </div>
-      </section>
+            <Info
+              label="Matrícula"
+              value={
+                processData.vehicle_registration
+              }
+            />
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -952,6 +1061,12 @@ function DocumentosTab({
                           <p className="text-sm font-semibold text-gray-800">
                             {request.label}
                           </p>
+
+                          {request.bankName && (
+                            <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">
+                              Pedido por {request.bankName}
+                            </span>
+                          )}
 
                           <span
                             className={[
@@ -1091,19 +1206,6 @@ function DocumentIcon() {
 }
 
 /* =========================================================
-   FINANCEIRAS
-========================================================= */
-
-function FinanceirasTab() {
-  return (
-    <EmptyState
-      title="Financeiras"
-      description="Aqui vamos gerir os envios do processo às financeiras, propostas, aprovações e recusas."
-    />
-  );
-}
-
-/* =========================================================
    HISTÓRICO
 ========================================================= */
 
@@ -1112,6 +1214,37 @@ function HistoricoTab({
 }: {
   processData: ProcessData;
 }) {
+  /*
+   * Eventos registados + documentos recebidos/assinados,
+   * do mais recente para o mais antigo.
+   */
+  const items = [
+    ...processData.events.map((event) => ({
+      key: `event-${event.id}`,
+      title: describeProcessEvent(event.type, event.data),
+      author: event.author,
+      date: event.created_at,
+    })),
+
+    ...processData.documents
+      .filter(
+        (document) =>
+          document.status === 'received' ||
+          document.status === 'rejected',
+      )
+      .map((document) => ({
+        key: `document-${document.id}`,
+        title: `${getDocumentTypeLabel(
+          document.type,
+          document.file_name,
+        )} — ${
+          DOCUMENT_STATUS_LABELS[document.status] ?? document.status
+        }`,
+        author: null,
+        date: document.created_at,
+      })),
+  ].sort((first, second) => second.date.localeCompare(first.date));
+
   return (
     <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
       <h2 className="text-lg font-semibold text-gray-950">
@@ -1119,44 +1252,19 @@ function HistoricoTab({
       </h2>
 
       <div className="mt-7 space-y-6">
-        <HistoryItem
-          title="Processo criado"
-          date={formatDate(
-            processData.created_at,
-          )}
-        />
+        {items.length === 0 && (
+          <p className="text-sm text-gray-400">Sem registos.</p>
+        )}
 
-        {processData.updated_at !==
-          processData.created_at && (
+        {items.map((item) => (
           <HistoryItem
-            title="Processo atualizado"
-            date={formatDate(
-              processData.updated_at,
-            )}
+            key={item.key}
+            title={item.title}
+            date={`${formatDateTime(item.date)}${
+              item.author ? ` · ${item.author}` : ''
+            }`}
           />
-        )}
-
-        {processData.documents.map(
-          (document) => (
-            <HistoryItem
-              key={document.id}
-              title={`${getDocumentName(
-                document.type,
-                document.file_name,
-              )} — ${
-                documentStatusLabels[
-                  document.status
-                ] ??
-                document.status
-              }`}
-              date={formatDate(
-                document.signed_at ??
-                  document.updated_at ??
-                  document.created_at,
-              )}
-            />
-          ),
-        )}
+        ))}
       </div>
     </section>
   );
@@ -1191,7 +1299,7 @@ function DocumentRow({
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <p className="truncate text-sm font-semibold text-gray-800">
-            {getDocumentName(
+            {getDocumentTypeLabel(
               document.type,
               document.file_name,
             )}
@@ -1207,7 +1315,7 @@ function DocumentRow({
         {document.signed_at && (
           <p className="mt-1 text-xs text-gray-400">
             Assinado em{' '}
-            {formatDate(
+            {formatDateTime(
               document.signed_at,
             )}
           </p>
@@ -1285,9 +1393,33 @@ function DocumentStatusBadge({
         className,
       ].join(' ')}
     >
-      {documentStatusLabels[
+      {DOCUMENT_STATUS_LABELS[
         status
       ] ?? status}
+    </span>
+  );
+}
+
+function ImportedBadge() {
+  return (
+    <span
+      title="Viatura importada"
+      className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="h-3.5 w-3.5"
+        aria-hidden="true"
+      >
+        <circle cx="12" cy="12" r="9" />
+        <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+      </svg>
+      Importada
     </span>
   );
 }
@@ -1364,139 +1496,3 @@ function HistoryItem({
   );
 }
 
-function getDocumentName(
-  type: string,
-  fileName:
-    | string
-    | null,
-) {
-  const names: Record<
-    string,
-    string
-  > = {
-    identity:
-      'Documento de identificação',
-
-    address_proof:
-      'Comprovativo de morada',
-
-    income_proof:
-      'Comprovativo de rendimentos',
-
-    bank_statement:
-      'Extrato bancário',
-
-    irs:
-      'IRS',
-
-    tax_assessment:
-      'Nota de liquidação',
-
-    rgpd:
-      'RGPD',
-
-    vehicle_document:
-      'Documento da viatura',
-
-    other:
-      'Outro documento',
-  };
-
-  return (
-    names[type] ??
-    fileName ??
-    'Documento'
-  );
-}
-
-function formatCurrency(
-  value:
-    | number
-    | null
-    | undefined,
-) {
-  if (
-    value === null ||
-    value === undefined
-  ) {
-    return '—';
-  }
-
-  return new Intl.NumberFormat(
-    'pt-PT',
-    {
-      style: 'currency',
-      currency: 'EUR',
-    },
-  ).format(Number(value));
-}
-
-function formatDate(
-  value:
-    | string
-    | null
-    | undefined,
-) {
-  if (!value) {
-    return '—';
-  }
-
-  return new Intl.DateTimeFormat(
-    'pt-PT',
-    {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    },
-  ).format(
-    new Date(value),
-  );
-}
-
-function formatFileSize(
-  bytes: number | null,
-) {
-  if (
-    bytes === null ||
-    bytes <= 0
-  ) {
-    return '';
-  }
-
-  if (
-    bytes < 1024
-  ) {
-    return `${bytes} B`;
-  }
-
-  const kb =
-    bytes / 1024;
-
-  if (
-    kb < 1024
-  ) {
-    return `${kb.toFixed(1)} KB`;
-  }
-
-  const mb =
-    kb / 1024;
-
-  return `${mb.toFixed(1)} MB`;
-}
-
-function formatSimpleDate(
-  value: string,
-) {
-  return new Intl.DateTimeFormat(
-    'pt-PT',
-    {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    },
-  ).format(
-    new Date(value),
-  );
-}

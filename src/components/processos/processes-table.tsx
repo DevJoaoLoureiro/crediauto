@@ -1,12 +1,20 @@
 import Link from 'next/link';
 
+import {
+  getCreditTypeLabel,
+  getProcessStatusLabel,
+} from '@/lib/crm/labels';
+import { formatCurrency } from '@/lib/format';
+
 export type ProcessListItem = {
   id: string;
   reference: string | null;
   status: string;
+  credit_type: string;
   requested_amount: number | null;
   vehicle_make: string | null;
   vehicle_model: string | null;
+  vehicle_imported: boolean;
 
   clients:
     | {
@@ -24,18 +32,6 @@ export type ProcessListItem = {
 
 type ProcessesTableProps = {
   processes: ProcessListItem[];
-};
-
-const statusLabels: Record<string, string> = {
-  new: 'Novo',
-  documentation: 'Documentação',
-  ready_for_analysis: 'Pronto para análise',
-  sent_to_lender: 'Enviado',
-  under_analysis: 'Em análise',
-  approved: 'Aprovado',
-  rejected: 'Recusado',
-  cancelled: 'Cancelado',
-  completed: 'Concluído',
 };
 
 export default function ProcessesTable({
@@ -73,6 +69,7 @@ export default function ProcessesTable({
           <tr className="text-left text-xs font-semibold uppercase tracking-wider text-gray-400">
             <th className="px-6 py-4">Referência</th>
             <th className="px-6 py-4">Cliente</th>
+            <th className="px-6 py-4">Tipo</th>
             <th className="px-6 py-4">Viatura</th>
             <th className="px-6 py-4">Montante</th>
             <th className="px-6 py-4">Estado</th>
@@ -120,7 +117,22 @@ export default function ProcessesTable({
                 </td>
 
                 <td className="px-6 py-4 text-sm text-gray-600">
-                  {vehicle || '—'}
+                  {getCreditTypeLabel(process.credit_type)}
+                </td>
+
+                <td className="px-6 py-4 text-sm text-gray-600">
+                  <span className="inline-flex items-center gap-2">
+                    {vehicle || '—'}
+
+                    {process.vehicle_imported && (
+                      <span
+                        title="Viatura importada"
+                        className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700"
+                      >
+                        Importada
+                      </span>
+                    )}
+                  </span>
                 </td>
 
                 <td className="px-6 py-4 text-sm font-medium text-gray-700">
@@ -151,18 +163,8 @@ export default function ProcessesTable({
 function StatusBadge({ status }: { status: string }) {
   return (
     <span className="inline-flex rounded-full bg-[#006571]/10 px-2.5 py-1 text-xs font-semibold text-[#006571]">
-      {statusLabels[status] ?? status}
+      {getProcessStatusLabel(status)}
     </span>
   );
 }
 
-function formatCurrency(value: number | null) {
-  if (value === null) {
-    return '—';
-  }
-
-  return new Intl.NumberFormat('pt-PT', {
-    style: 'currency',
-    currency: 'EUR',
-  }).format(value);
-}

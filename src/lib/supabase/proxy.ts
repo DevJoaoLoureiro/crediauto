@@ -40,15 +40,27 @@ export async function updateSession(
     },
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  /*
+   * getClaims valida o JWT localmente (chaves assimétricas),
+   * evitando uma chamada ao servidor Auth em cada pedido.
+   * Também renova a sessão quando necessário.
+   */
+  const { data } = await supabase.auth.getClaims();
+
+  const user = data?.claims ?? null;
 
   const pathname = request.nextUrl.pathname;
 
+  /*
+   * Rotas públicas: login, assinatura RGPD e portal do cliente.
+   * As rotas /api/ tratam a sua própria autenticação (401/403)
+   * em vez de redirecionarem para o login.
+   */
   const isPublicRoute =
     pathname === '/' ||
-    pathname.startsWith('/assinar/');
+    pathname.startsWith('/assinar/') ||
+    pathname.startsWith('/documentos-cliente/') ||
+    pathname.startsWith('/api/');
 
   if (!user && !isPublicRoute) {
     const url = request.nextUrl.clone();

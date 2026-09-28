@@ -22,6 +22,16 @@ const navigation = [
     icon: FolderIcon,
   },
   {
+    label: 'Bancos',
+    href: '/bancos',
+    icon: BankIcon,
+  },
+  {
+    label: 'Fornecedores',
+    href: '/fornecedores',
+    icon: StoreIcon,
+  },
+  {
     label: 'Documentos',
     href: '/documentos',
     icon: DocumentIcon,
@@ -30,6 +40,11 @@ const navigation = [
     label: 'Tarefas',
     href: '/tarefas',
     icon: TasksIcon,
+  },
+  {
+    label: 'Prazos',
+    href: '/prazos',
+    icon: ClockIcon,
   },
 ];
 
@@ -361,6 +376,43 @@ function FolderIcon() {
   );
 }
 
+function BankIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-5 w-5"
+    >
+      <path d="M3.5 9 12 4l8.5 5" />
+      <path d="M5 9v9M9.5 9v9M14.5 9v9M19 9v9" />
+      <path d="M3.5 19.5h17" />
+    </svg>
+  );
+}
+
+function StoreIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-5 w-5"
+    >
+      <path d="M4 9.5 5.5 4h13L20 9.5" />
+      <path d="M4 9.5a2.7 2.7 0 0 0 5.3 0 2.7 2.7 0 0 0 5.4 0 2.7 2.7 0 0 0 5.3 0" />
+      <path d="M5 11.5V20h14v-8.5" />
+      <path d="M10 20v-4.5h4V20" />
+    </svg>
+  );
+}
+
 function DocumentIcon() {
   return (
     <svg
@@ -400,6 +452,23 @@ function TasksIcon() {
       <path d="m8 10 1.5 1.5L12 9" />
       <path d="M14 10h3" />
       <path d="M8 15h9" />
+    </svg>
+  );
+}
+
+function ClockIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-5 w-5"
+    >
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 2" />
     </svg>
   );
 }

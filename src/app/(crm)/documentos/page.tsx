@@ -1,25 +1,11 @@
 import Link from 'next/link';
 
 import { createClient } from '@/lib/supabase/server';
-
-const documentTypeLabels: Record<string, string> = {
-  identity: 'Documento de identificação',
-  address_proof: 'Comprovativo de morada',
-  income_proof: 'Comprovativo de rendimentos',
-  bank_statement: 'Extrato bancário',
-  irs: 'IRS',
-  tax_assessment: 'Nota de liquidação',
-  rgpd: 'RGPD',
-  vehicle_document: 'Documento da viatura',
-  other: 'Outro',
-};
-
-const documentStatusLabels: Record<string, string> = {
-  pending: 'Pendente',
-  received: 'Recebido',
-  signed: 'Assinado',
-  rejected: 'Rejeitado',
-};
+import {
+  DOCUMENT_STATUS_LABELS,
+  DOCUMENT_TYPE_LABELS,
+} from '@/lib/crm/labels';
+import { formatShortMonthDate } from '@/lib/format';
 
 export default async function DocumentsPage() {
   const supabase = await createClient();
@@ -174,7 +160,7 @@ export default async function DocumentsPage() {
 
                           <div className="min-w-0">
                             <p className="truncate text-sm font-semibold text-gray-900">
-                              {documentTypeLabels[document.type] ?? document.type}
+                              {DOCUMENT_TYPE_LABELS[document.type] ?? document.type}
                             </p>
 
                             <p className="mt-1 truncate text-xs text-gray-400">
@@ -216,7 +202,7 @@ export default async function DocumentsPage() {
 
                       <TableCell>
                         <span className="text-sm text-gray-500">
-                          {formatDate(
+                          {formatShortMonthDate(
                             document.updated_at ?? document.created_at,
                           )}
                         </span>
@@ -352,7 +338,7 @@ function StatusBadge({
         classes,
       ].join(' ')}
     >
-      {documentStatusLabels[status] ?? status}
+      {DOCUMENT_STATUS_LABELS[status] ?? status}
     </span>
   );
 }
@@ -393,14 +379,3 @@ function DocumentIcon() {
   );
 }
 
-function formatDate(value: string | null | undefined) {
-  if (!value) {
-    return '—';
-  }
-
-  return new Intl.DateTimeFormat('pt-PT', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  }).format(new Date(value));
-}

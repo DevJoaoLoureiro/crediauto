@@ -10,6 +10,7 @@ import {
   generateClientPortalLinkAction,
   revokeClientPortalAction,
 } from '@/app/(crm)/processos/[id]/portal-actions';
+import { formatDateTime } from '@/lib/format';
 
 type Props = {
   processId: string;
@@ -320,28 +321,3 @@ export default function GenerateClientPortalLink({
   );
 }
 
-function formatDateTime(
-  value: string,
-) {
-  const date =
-    new Date(value);
-
-  if (
-    Number.isNaN(
-      date.getTime(),
-    )
-  ) {
-    return '—';
-  }
-
-  return new Intl.DateTimeFormat(
-    'pt-PT',
-    {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    },
-  ).format(date);
-}

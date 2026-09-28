@@ -13,6 +13,7 @@ import {
 
 import { createAdminClient } from '@/lib/supabase/admin';
 import { hashSignatureToken } from '@/lib/signatures/token';
+import { logProcessEvent } from '@/lib/crm/events';
 
 type ConsentValue = 'yes' | 'no' | '';
 
@@ -667,6 +668,15 @@ export async function submitRgpdAction(
           'O documento foi recebido, mas ocorreu um erro ao finalizar o link.',
       };
     }
+
+    await logProcessEvent(supabase, {
+      processId: document.process_id,
+      type: 'rgpd_signed',
+      data: {
+        client_id: document.client_id,
+        document_id: document.id,
+      },
+    });
 
     return {
       success: true,

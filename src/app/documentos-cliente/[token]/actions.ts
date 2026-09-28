@@ -1,12 +1,13 @@
 'use server';
 
-import {
-  createHash,
-  randomBytes,
-} from 'crypto';
-
 import { createAdminClient } from '@/lib/supabase/admin';
 import { hashClientPortalToken } from '@/lib/client-portal/tokens';
+import {
+  generateSignatureToken,
+  hashSignatureToken,
+} from '@/lib/signatures/token';
+import { ensureRgpdState } from '@/lib/rgpd/ensure-rgpd-state';
+import { isExpired } from '@/lib/format';
 
 type StartRgpdResult =
   | {
@@ -24,33 +25,17 @@ type StartRgpdResult =
     };
 
 /* =========================================================
-   HELPERS DO TOKEN DE ASSINATURA
-========================================================= */
-
-function generateSignatureToken() {
-  return randomBytes(32).toString(
-    'base64url',
-  );
-}
-
-function hashSignatureToken(
-  token: string,
-) {
-  return createHash('sha256')
-    .update(token)
-    .digest('hex');
-}
-
-/* =========================================================
    INICIAR RGPD PELO PORTAL
 ========================================================= */
 
 export async function startRgpdFromPortalAction(
   portalToken: string,
+  requestId: string,
 ): Promise<StartRgpdResult> {
   if (
     !portalToken ||
-    portalToken.length < 20
+    portalToken.length < 20 ||
+    portalToken.length > 200
   ) {
     return {
       success: false,
@@ -66,11 +51,6 @@ export async function startRgpdFromPortalAction(
      VALIDAR PORTAL
   ======================================================= */
 
-  const portalTokenHash =
-    hashClientPortalToken(
-      portalToken,
-    );
-
   const {
     data: portal,
     error: portalError,
@@ -84,7 +64,7 @@ export async function startRgpdFromPortalAction(
     `)
     .eq(
       'token_hash',
-      portalTokenHash,
+      hashClientPortalToken(portalToken),
     )
     .maybeSingle();
 
@@ -116,11 +96,7 @@ export async function startRgpdFromPortalAction(
     };
   }
 
-  if (
-    new Date(
-      portal.expires_at,
-    ).getTime() <= Date.now()
-  ) {
+  if (isExpired(portal.expires_at)) {
     return {
       success: false,
       code: 'PORTAL_EXPIRED',
@@ -163,210 +139,69 @@ export async function startRgpdFromPortalAction(
   }
 
   /* =======================================================
-     1º — VERIFICAR SE O RGPD JÁ ESTÁ ASSINADO
+     INTERVENIENTE QUE VAI ASSINAR
 
-     Se estiver:
-     TERMINA.
-
-     Nunca criar novo RGPD.
+     O pedido RGPD tem de pertencer ao processo deste portal.
+     Pedidos antigos sem registo usam o cliente do processo.
   ======================================================= */
 
-  const {
-    data: signedRgpd,
-    error: signedRgpdError,
-  } = await admin
-    .from('documents')
-    .select(`
-      id,
-      request_id,
-      status,
-      storage_path,
-      signed_at
-    `)
-    .eq(
-      'process_id',
-      portal.process_id,
-    )
-    .eq('type', 'rgpd')
-    .eq('status', 'signed')
-    .order('created_at', {
-      ascending: false,
-    })
-    .limit(1)
-    .maybeSingle();
+  let signerClientId = creditProcess.client_id;
+  let rgpdLabel = 'RGPD';
 
-  if (signedRgpdError) {
-    console.error(
-      'Erro ao procurar RGPD assinado:',
-      signedRgpdError,
-    );
-
-    return {
-      success: false,
-      code: 'DATABASE_ERROR',
-      message:
-        'Não foi possível verificar o RGPD.',
-    };
-  }
-
-  if (signedRgpd) {
-    /*
-     * Aproveitamos para garantir que o pedido
-     * lógico fica completed.
-     */
-    if (signedRgpd.request_id) {
-      const {
-        error: completeError,
-      } = await admin
-        .from('document_requests')
-        .update({
-          status: 'completed',
-        })
-        .eq(
-          'id',
-          signedRgpd.request_id,
-        );
-
-      if (completeError) {
-        console.error(
-          'Erro ao concluir pedido RGPD:',
-          completeError,
-        );
-      }
-    }
-
-    return {
-      success: false,
-      code: 'RGPD_ALREADY_SIGNED',
-      message:
-        'O RGPD deste processo já se encontra assinado.',
-    };
-  }
-
-  /* =======================================================
-     PROCURAR / CRIAR DOCUMENT_REQUEST RGPD
-  ======================================================= */
-
-  const {
-    data: existingRequest,
-    error: requestError,
-  } = await admin
-    .from('document_requests')
-    .select(`
-      id,
-      status
-    `)
-    .eq(
-      'process_id',
-      portal.process_id,
-    )
-    .eq('type', 'rgpd')
-    .neq('status', 'cancelled')
-    .order('created_at', {
-      ascending: false,
-    })
-    .limit(1)
-    .maybeSingle();
-
-  if (requestError) {
-    console.error(
-      'Erro ao procurar pedido RGPD:',
-      requestError,
-    );
-
-    return {
-      success: false,
-      code: 'DATABASE_ERROR',
-      message:
-        'Não foi possível preparar o RGPD.',
-    };
-  }
-
-  let rgpdRequest =
-    existingRequest;
-
-  if (!rgpdRequest) {
+  if (!requestId.startsWith('legacy-')) {
     const {
-      data: newRequest,
-      error: createRequestError,
+      data: rgpdRequest,
+      error: rgpdRequestError,
     } = await admin
       .from('document_requests')
-      .insert({
-        process_id:
-          creditProcess.id,
+      .select('id, client_id, label')
+      .eq('id', requestId)
+      .eq('process_id', creditProcess.id)
+      .eq('type', 'rgpd')
+      .maybeSingle();
 
-        client_id:
-          creditProcess.client_id,
-
-        type: 'rgpd',
-
-        label: 'RGPD',
-
-        instructions:
-          'Leia e assine o documento de proteção de dados.',
-
-        quantity_required: 1,
-
-        status: 'pending',
-      })
-      .select(`
-        id,
-        status
-      `)
-      .single();
-
-    if (
-      createRequestError ||
-      !newRequest
-    ) {
-      console.error(
-        'Erro ao criar pedido RGPD:',
-        createRequestError,
-      );
+    if (rgpdRequestError || !rgpdRequest) {
+      if (rgpdRequestError) {
+        console.error(
+          'Erro ao carregar pedido RGPD:',
+          rgpdRequestError,
+        );
+      }
 
       return {
         success: false,
-        code: 'DATABASE_ERROR',
+        code: 'INVALID_PORTAL',
         message:
-          'Não foi possível preparar o RGPD.',
+          'Este pedido de RGPD não pertence a este processo.',
       };
     }
 
-    rgpdRequest = newRequest;
+    signerClientId = rgpdRequest.client_id;
+    rgpdLabel = rgpdRequest.label || 'RGPD';
   }
 
   /* =======================================================
-     PROCURAR RGPD PENDENTE
+     GARANTIR RGPD (idempotente)
 
-     Reutilizamos SEMPRE o existente.
+     Assinado -> termina.
+     Pendente -> reutiliza.
+     Nenhum   -> cria UM.
   ======================================================= */
 
-  const {
-    data: pendingRgpd,
-    error: pendingRgpdError,
-  } = await admin
-    .from('documents')
-    .select(`
-      id,
-      request_id,
-      status
-    `)
-    .eq(
-      'process_id',
-      portal.process_id,
-    )
-    .eq('type', 'rgpd')
-    .eq('status', 'pending')
-    .order('created_at', {
-      ascending: false,
-    })
-    .limit(1)
-    .maybeSingle();
+  let rgpd;
 
-  if (pendingRgpdError) {
+  try {
+    rgpd = await ensureRgpdState(
+      admin,
+      creditProcess.id,
+      signerClientId,
+      null,
+      rgpdLabel,
+    );
+  } catch (error) {
     console.error(
-      'Erro ao procurar RGPD pendente:',
-      pendingRgpdError,
+      'Erro ao preparar RGPD:',
+      error,
     );
 
     return {
@@ -377,97 +212,13 @@ export async function startRgpdFromPortalAction(
     };
   }
 
-  let rgpdDocumentId: string;
-
-  /* =======================================================
-     JÁ EXISTE PENDING
-  ======================================================= */
-
-  if (pendingRgpd) {
-    rgpdDocumentId =
-      pendingRgpd.id;
-
-    if (
-      pendingRgpd.request_id !==
-      rgpdRequest.id
-    ) {
-      const {
-        error: associateError,
-      } = await admin
-        .from('documents')
-        .update({
-          request_id:
-            rgpdRequest.id,
-        })
-        .eq(
-          'id',
-          pendingRgpd.id,
-        );
-
-      if (associateError) {
-        console.error(
-          'Erro ao associar RGPD pendente:',
-          associateError,
-        );
-
-        return {
-          success: false,
-          code: 'DATABASE_ERROR',
-          message:
-            'Não foi possível preparar o RGPD.',
-        };
-      }
-    }
-  }
-
-  /* =======================================================
-     NÃO EXISTE PENDING
-
-     Só aqui criamos UM.
-  ======================================================= */
-
-  else {
-    const {
-      data: newDocument,
-      error: createDocumentError,
-    } = await admin
-      .from('documents')
-      .insert({
-        process_id:
-          creditProcess.id,
-
-        client_id:
-          creditProcess.client_id,
-
-        request_id:
-          rgpdRequest.id,
-
-        type: 'rgpd',
-
-        status: 'pending',
-      })
-      .select('id')
-      .single();
-
-    if (
-      createDocumentError ||
-      !newDocument
-    ) {
-      console.error(
-        'Erro ao criar documento RGPD:',
-        createDocumentError,
-      );
-
-      return {
-        success: false,
-        code: 'DATABASE_ERROR',
-        message:
-          'Não foi possível preparar o documento RGPD.',
-      };
-    }
-
-    rgpdDocumentId =
-      newDocument.id;
+  if (rgpd.signed) {
+    return {
+      success: false,
+      code: 'RGPD_ALREADY_SIGNED',
+      message:
+        'Este RGPD já se encontra assinado.',
+    };
   }
 
   /* =======================================================
@@ -487,7 +238,7 @@ export async function startRgpdFromPortalAction(
     })
     .eq(
       'document_id',
-      rgpdDocumentId,
+      rgpd.documentId,
     )
     .is('used_at', null)
     .is('revoked_at', null);
@@ -510,16 +261,11 @@ export async function startRgpdFromPortalAction(
      CRIAR NOVO TOKEN DE ASSINATURA
 
      O portal continua igual.
-     O token de assinatura é temporário.
+     O token de assinatura é temporário (1 hora).
   ======================================================= */
 
   const rawSignatureToken =
     generateSignatureToken();
-
-  const signatureTokenHash =
-    hashSignatureToken(
-      rawSignatureToken,
-    );
 
   const signatureExpiresAt =
     new Date(
@@ -533,10 +279,12 @@ export async function startRgpdFromPortalAction(
     .from('signature_tokens')
     .insert({
       document_id:
-        rgpdDocumentId,
+        rgpd.documentId,
 
       token_hash:
-        signatureTokenHash,
+        hashSignatureToken(
+          rawSignatureToken,
+        ),
 
       expires_at:
         signatureExpiresAt.toISOString(),

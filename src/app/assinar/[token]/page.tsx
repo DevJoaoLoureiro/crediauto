@@ -7,6 +7,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import {
   hashSignatureToken,
 } from '@/lib/signatures/token';
+import { isExpired } from '@/lib/format';
 
 type SignPageProps = {
   params: Promise<{
@@ -23,6 +24,10 @@ export default async function SignPage({
   searchParams,
 }: SignPageProps) {
   const { token } = await params;
+
+  if (!token || token.length > 200) {
+    notFound();
+  }
 
   const search =
     await searchParams;
@@ -50,7 +55,7 @@ export default async function SignPage({
       revoked_at
     `)
     .eq('token_hash', tokenHash)
-    .single();
+    .maybeSingle();
 
   if (!signatureToken) {
     notFound();
@@ -67,11 +72,7 @@ export default async function SignPage({
     );
   }
 
-  if (
-    new Date(
-      signatureToken.expires_at,
-    ).getTime() < Date.now()
-  ) {
+  if (isExpired(signatureToken.expires_at)) {
     return (
       <InvalidLink
         message="Este link expirou. Solicite um novo link à CrediAuto."
@@ -79,37 +80,36 @@ export default async function SignPage({
     );
   }
 
+  /*
+   * Documento + cliente numa só consulta.
+   */
   const { data: document } =
     await supabase
       .from('documents')
       .select(`
         id,
         process_id,
-        client_id
+        client_id,
+        clients (
+          id,
+          full_name,
+          nif,
+          identification_number
+        )
       `)
       .eq(
         'id',
         signatureToken.document_id,
       )
-      .single();
+      .maybeSingle();
 
-  if (!document) {
-    notFound();
-  }
+  const client = Array.isArray(
+    document?.clients,
+  )
+    ? document.clients[0] ?? null
+    : document?.clients ?? null;
 
-  const { data: client } =
-    await supabase
-      .from('clients')
-      .select(`
-        id,
-        full_name,
-        nif,
-        identification_number
-      `)
-      .eq('id', document.client_id)
-      .single();
-
-  if (!client) {
+  if (!document || !client) {
     notFound();
   }
 

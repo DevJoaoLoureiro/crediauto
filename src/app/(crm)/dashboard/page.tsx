@@ -1,50 +1,73 @@
 import Link from 'next/link';
 
 import { createClient } from '@/lib/supabase/server';
-
-const statusLabels: Record<string, string> = {
-  new: 'Novo',
-  documentation: 'Documentação',
-  ready_for_analysis: 'Pronto para análise',
-  sent_to_lender: 'Enviado',
-  under_analysis: 'Em análise',
-  approved: 'Aprovado',
-  rejected: 'Recusado',
-  cancelled: 'Cancelado',
-  completed: 'Concluído',
-};
+import {
+  ACTIVE_PROCESS_STATUSES,
+  ANALYSIS_PROCESS_STATUSES,
+  getProcessStatusLabel,
+} from '@/lib/crm/labels';
+import { formatShortMonthDate, todayIsoDate } from '@/lib/format';
 
 export default async function DashboardPage() {
   const supabase = await createClient();
+  const today = todayIsoDate();
+
+  /*
+   * Contagens feitas na base de dados (head: true).
+   *
+   * Evita carregar todas as linhas para o servidor e
+   * não é afetado pelo limite de 1000 linhas do PostgREST.
+   */
+  const countProcesses = () =>
+    supabase
+      .from('credit_processes')
+      .select('id', { count: 'exact', head: true });
+
+  const countDocuments = () =>
+    supabase
+      .from('documents')
+      .select('id', { count: 'exact', head: true });
 
   const [
     clientsResult,
-    processesResult,
-    documentsResult,
+    totalProcessesResult,
+    activeProcessesResult,
+    newProcessesResult,
+    documentationProcessesResult,
+    analysisProcessesResult,
+    approvedProcessesResult,
+    completedProcessesResult,
+    rejectedProcessesResult,
+    pendingDocumentsResult,
+    pendingRgpdResult,
+    receivedDocumentsResult,
+    overdueContractsResult,
+    overdueRegistrationsResult,
     recentProcessesResult,
   ] = await Promise.all([
     supabase
       .from('clients')
-      .select('id', {
-        count: 'exact',
-        head: true,
-      }),
+      .select('id', { count: 'exact', head: true }),
 
-    supabase
-      .from('credit_processes')
-      .select(`
-        id,
-        status,
-        created_at
-      `),
+    countProcesses(),
+    countProcesses().in('status', ACTIVE_PROCESS_STATUSES),
+    countProcesses().eq('status', 'new'),
+    countProcesses().eq('status', 'documentation'),
+    countProcesses().in('status', ANALYSIS_PROCESS_STATUSES),
+    countProcesses().eq('status', 'approved'),
+    countProcesses().eq('status', 'completed'),
+    countProcesses().eq('status', 'rejected'),
 
-    supabase
-      .from('documents')
-      .select(`
-        id,
-        type,
-        status
-      `),
+    countDocuments().eq('status', 'pending'),
+    countDocuments().eq('type', 'rgpd').eq('status', 'pending'),
+    countDocuments().in('status', ['received', 'signed']),
+
+    countProcesses()
+      .eq('status', 'contract_signing')
+      .lt('contract_deadline', today),
+    countProcesses()
+      .eq('status', 'registration')
+      .lt('registration_deadline', today),
 
     supabase
       .from('credit_processes')
@@ -53,7 +76,7 @@ export default async function DashboardPage() {
         reference,
         status,
         created_at,
-        clients (
+        clients!client_id (
           id,
           full_name
         )
@@ -64,25 +87,27 @@ export default async function DashboardPage() {
       .limit(6),
   ]);
 
-  if (clientsResult.error) {
-    console.error(
-      'Erro dashboard clientes:',
-      clientsResult.error,
-    );
-  }
+  const countResults = {
+    clientsResult,
+    totalProcessesResult,
+    activeProcessesResult,
+    newProcessesResult,
+    documentationProcessesResult,
+    analysisProcessesResult,
+    approvedProcessesResult,
+    completedProcessesResult,
+    rejectedProcessesResult,
+    pendingDocumentsResult,
+    pendingRgpdResult,
+    receivedDocumentsResult,
+    overdueContractsResult,
+    overdueRegistrationsResult,
+  };
 
-  if (processesResult.error) {
-    console.error(
-      'Erro dashboard processos:',
-      processesResult.error,
-    );
-  }
-
-  if (documentsResult.error) {
-    console.error(
-      'Erro dashboard documentos:',
-      documentsResult.error,
-    );
+  for (const [name, result] of Object.entries(countResults)) {
+    if (result.error) {
+      console.error(`Erro dashboard (${name}):`, result.error);
+    }
   }
 
   if (recentProcessesResult.error) {
@@ -92,104 +117,32 @@ export default async function DashboardPage() {
     );
   }
 
-  const totalClients =
-    clientsResult.count ?? 0;
+  const totalClients = clientsResult.count ?? 0;
+  const totalProcessCount = totalProcessesResult.count ?? 0;
+  const activeProcesses = activeProcessesResult.count ?? 0;
+  const newProcesses = newProcessesResult.count ?? 0;
+  const documentationProcesses =
+    documentationProcessesResult.count ?? 0;
+  const analysisProcesses = analysisProcessesResult.count ?? 0;
+  const approvedProcesses = approvedProcessesResult.count ?? 0;
+  const completedProcesses = completedProcessesResult.count ?? 0;
+  const rejectedProcesses = rejectedProcessesResult.count ?? 0;
 
-  const processes =
-    processesResult.data ?? [];
-
-  const documents =
-    documentsResult.data ?? [];
+  const pendingDocuments = pendingDocumentsResult.count ?? 0;
+  const pendingRgpd = pendingRgpdResult.count ?? 0;
+  const receivedDocuments = receivedDocumentsResult.count ?? 0;
+  const overdueContracts = overdueContractsResult.count ?? 0;
+  const overdueRegistrations = overdueRegistrationsResult.count ?? 0;
 
   const recentProcesses =
     recentProcessesResult.data ?? [];
 
-  const activeProcesses =
-    processes.filter((process) =>
-      [
-        'new',
-        'documentation',
-        'ready_for_analysis',
-        'sent_to_lender',
-        'under_analysis',
-        'approved',
-      ].includes(process.status),
-    ).length;
-
-  const newProcesses =
-    processes.filter(
-      (process) =>
-        process.status === 'new',
-    ).length;
-
-  const documentationProcesses =
-    processes.filter(
-      (process) =>
-        process.status ===
-        'documentation',
-    ).length;
-
-  const analysisProcesses =
-    processes.filter((process) =>
-      [
-        'ready_for_analysis',
-        'sent_to_lender',
-        'under_analysis',
-      ].includes(process.status),
-    ).length;
-
-  const approvedProcesses =
-    processes.filter(
-      (process) =>
-        process.status ===
-        'approved',
-    ).length;
-
-  const completedProcesses =
-    processes.filter(
-      (process) =>
-        process.status ===
-        'completed',
-    ).length;
-
-  const rejectedProcesses =
-    processes.filter(
-      (process) =>
-        process.status ===
-        'rejected',
-    ).length;
-
-  const pendingDocuments =
-    documents.filter(
-      (document) =>
-        document.status ===
-        'pending',
-    ).length;
-
-  const pendingRgpd =
-    documents.filter(
-      (document) =>
-        document.type === 'rgpd' &&
-        document.status ===
-          'pending',
-    ).length;
-
-  const receivedDocuments =
-    documents.filter(
-      (document) =>
-        document.status ===
-          'received' ||
-        document.status ===
-          'signed',
-    ).length;
-
-  const totalProcessCount =
-    processes.length;
-
   const attentionCount =
     pendingDocuments +
     documentationProcesses +
-    pendingRgpd;
+    pendingRgpd +
+    overdueContracts +
+    overdueRegistrations;
 
   return (
     <div className="space-y-8">
@@ -363,7 +316,7 @@ export default async function DashboardPage() {
                         </p>
 
                         <p className="mt-1 text-sm font-medium text-gray-600">
-                          {formatDate(
+                          {formatShortMonthDate(
                             process.created_at,
                           )}
                         </p>
@@ -463,6 +416,20 @@ export default async function DashboardPage() {
               <AttentionRow
                 label="RGPD por assinar"
                 value={pendingRgpd}
+              />
+
+              <AttentionRow
+                label="Contratos fora do prazo (15 dias)"
+                value={overdueContracts}
+                href="/prazos"
+                urgent
+              />
+
+              <AttentionRow
+                label="Averbamentos fora do prazo (45 dias)"
+                value={overdueRegistrations}
+                href="/prazos"
+                urgent
               />
             </div>
           )}
@@ -673,18 +640,24 @@ function DashboardPanel({
 function AttentionRow({
   label,
   value,
+  href,
+  urgent = false,
 }: {
   label: string;
   value: number;
+  href?: string;
+  urgent?: boolean;
 }) {
-  return (
-    <div className="flex items-center justify-between rounded-xl bg-[#F8FAFA] px-4 py-3">
+  const content = (
+    <>
       <div className="flex items-center gap-3">
         <div
           className={[
             'h-2 w-2 rounded-full',
             value > 0
-              ? 'bg-amber-400'
+              ? urgent
+                ? 'bg-red-500'
+                : 'bg-amber-400'
               : 'bg-gray-300',
           ].join(' ')}
         />
@@ -697,7 +670,21 @@ function AttentionRow({
       <span className="text-sm font-semibold text-gray-900">
         {value}
       </span>
-    </div>
+    </>
+  );
+
+  const className =
+    'flex items-center justify-between rounded-xl bg-[#F8FAFA] px-4 py-3';
+
+  return href ? (
+    <Link
+      href={href}
+      className={`${className} transition hover:bg-[#EAF5F6]`}
+    >
+      {content}
+    </Link>
+  ) : (
+    <div className={className}>{content}</div>
   );
 }
 
@@ -761,7 +748,9 @@ function ProcessStatus({
   }
 
   if (
-    status === 'documentation'
+    status === 'documentation' ||
+    status === 'contract_signing' ||
+    status === 'registration'
   ) {
     classes =
       'bg-amber-50 text-amber-700';
@@ -794,30 +783,9 @@ function ProcessStatus({
         classes,
       ].join(' ')}
     >
-      {statusLabels[status] ??
-        status}
+      {getProcessStatusLabel(status)}
     </span>
   );
-}
-
-function formatDate(
-  value:
-    | string
-    | null
-    | undefined,
-) {
-  if (!value) {
-    return '—';
-  }
-
-  return new Intl.DateTimeFormat(
-    'pt-PT',
-    {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    },
-  ).format(new Date(value));
 }
 
 /* =========================================================
